@@ -158,6 +158,7 @@ seaf_repo_from_commit (SeafRepo *repo, SeafCommit *commit)
     }
     repo->no_local_history = commit->no_local_history;
     repo->version = commit->version;
+    repo->repaired = commit->repaired;
 }
 
 void
@@ -2790,4 +2791,88 @@ seaf_repo_manager_get_decrypted_token (SeafRepoManager *mgr,
     if (token)
         return g_strdup(token->token);
     return NULL;
+}
+
+int
+seaf_repo_manager_enable_repo_sync (const char *repo_id,
+                                    GError **error)
+{
+    SeafBranch *branch = NULL;
+    SeafCommit *parent_commit = NULL;
+    SeafCommit *new_commit = NULL;
+    int ret = 0;
+
+    branch = seaf_branch_manager_get_branch (seaf->branch_mgr,
+                                             repo_id, "master");
+    if (!branch) {
+        g_warning ("Failed to get master branch of repo %.8s.\n", repo_id);
+        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_GENERAL,
+                     "Failed to get master branch");
+        return -1;
+    }
+
+    parent_commit = seaf_commit_manager_get_commit_compatible (seaf->commit_mgr,
+                                                               repo_id,
+                                                               branch->commit_id);
+    if (!parent_commit) {
+        seaf_warning ("Commit %s is missing\n", branch->commit_id);
+        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_GENERAL,
+                     "Head commit is missing");
+        ret = -1;
+        goto out;
+    }
+
+    new_commit = seaf_commit_new (NULL, repo_id, parent_commit->root_id,
+                                  parent_commit->creator_name,
+                                  parent_commit->creator_id,
+                                  "Enable repo sync", 0);
+    if (!new_commit) {
+        seaf_warning ("Out of memory when create commit.\n");
+        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_GENERAL,
+                     "Out of memory");
+        ret = -1;
+        goto out;
+    }
+    new_commit->parent_id = g_strdup (parent_commit->commit_id);
+    new_commit->repo_name = g_strdup (parent_commit->repo_name);
+    new_commit->repo_desc = g_strdup (parent_commit->repo_desc);
+    new_commit->encrypted = parent_commit->encrypted;
+    if (new_commit->encrypted) {
+        new_commit->enc_version = parent_commit->enc_version;
+        if (new_commit->enc_version >= 1)
+            new_commit->magic = g_strdup (parent_commit->magic);
+        if (new_commit->enc_version == 2)
+            new_commit->random_key = g_strdup (parent_commit->random_key);
+    }
+    new_commit->repo_category = g_strdup (parent_commit->repo_category);
+    new_commit->no_local_history = parent_commit->no_local_history;
+    new_commit->version = parent_commit->version;
+
+    if (seaf_commit_manager_add_commit (seaf->commit_mgr,
+                                        new_commit) < 0) {
+        seaf_warning ("Failed to save commit.\n");
+        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_GENERAL,
+                     "Failed to save commit");
+        ret = -1;
+        goto out;
+    }
+
+    seaf_branch_set_commit (branch, new_commit->commit_id);
+    if (seaf_branch_manager_update_branch (seaf->branch_mgr,
+                                           branch) < 0) {
+        seaf_warning ("Failed to update head commit.\n");
+        g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_GENERAL,
+                     "Failed to update head commit");
+        ret = -1;
+    }
+
+out:
+    if (parent_commit)
+        seaf_commit_unref (parent_commit);
+    if (new_commit)
+        seaf_commit_unref (new_commit);
+    if (branch)
+        seaf_branch_unref (branch);
+
+    return ret;
 }

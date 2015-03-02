@@ -460,6 +460,7 @@ gen_new_commit (const char *repo_id,
                                  user, EMPTY_SHA1,
                                  desc, 0);
     new_commit->parent_id = g_strdup (base->commit_id);
+    new_commit->repaired = base->repaired;
     seaf_repo_to_commit (repo, new_commit);
 
     if (seaf_commit_manager_add_commit (seaf->commit_mgr, new_commit) < 0) {
@@ -526,6 +527,7 @@ retry:
         g_free (desc);
 
         merged_commit->parent_id = g_strdup (current_head->commit_id);
+        merged_commit->repaired = current_head->repaired;
         merged_commit->second_parent_id = g_strdup (new_commit->commit_id);
         merged_commit->new_merge = TRUE;
         if (opt.conflict)
@@ -4356,7 +4358,7 @@ retry:
                                   desc, 0);
 
     new_commit->parent_id = g_strdup (repo->head->commit_id);
-
+    new_commit->repaired = commit->repaired;
     seaf_repo_to_commit (repo, new_commit);
 
     if (seaf_commit_manager_add_commit (seaf->commit_mgr, new_commit) < 0) {
